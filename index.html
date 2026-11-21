@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesas</title>
+<style>
+  :root { --bg:#14121a; --panel:#1d1a26; --line:#322c42; --text:#ece8f2; --muted:#9a93ad; --accent:#7a5cd6; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:12px; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; font-size:13px; }
+  h1 { margin:0 0 10px; font-size:15px; }
+  button { font:inherit; border:0; border-radius:8px; padding:9px 10px; color:var(--text); font-weight:600; cursor:pointer; background:#2e2840; }
+  button:hover { filter:brightness(1.25); }
+  button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  button.principal { background:var(--accent); width:100%; }
+  button.perigo { background:#7d2630; }
+  .bloco { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; }
+  .rotulo { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+  .mesas { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px; }
+  .mesa { padding:0; background:#12101a; border:2px solid transparent; overflow:hidden; text-align:center; }
+  .mesa img { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; }
+  .mesa span { display:block; padding:5px 4px; font-size:12px; }
+  .mesa.sel { border-color:#fff; }
+  .linha { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  small { display:block; margin-top:8px; color:var(--muted); line-height:1.4; font-size:11px; }
+  .jogador { color:var(--muted); text-align:center; padding:14px 6px; line-height:1.5; }
+</style>
+</head>
+<body>
+  <h1>Mesas</h1>
+
+  <div class="jogador" id="jogador" hidden>Clique num olhinho no mapa para olhar a mesa.</div>
+
+  <div id="mestre" hidden>
+    <div class="bloco">
+      <div class="rotulo">Mesa do novo olhinho</div>
+      <div class="mesas" id="mesas-novo"></div>
+      <button class="principal" id="colocar">Colocar olhinho no centro da tela</button>
+      <small>Depois arraste o olhinho para o lugar certo no mapa.</small>
+    </div>
+
+    <div class="bloco" id="sel" hidden>
+      <div class="rotulo">Olhinho selecionado</div>
+      <div class="mesas" id="mesas-sel"></div>
+      <div class="linha">
+        <button id="previa">Pré-visualizar</button>
+        <button class="perigo" id="remover">Remover</button>
+      </div>
+    </div>
+
+    <small>Os jogadores clicam no olhinho e a mesa abre só na tela deles. Para mexer no olhinho, selecione-o: ele aparece aqui.</small>
+  </div>
+
+<script type="module">
+import OBR, { buildImage } from "https://esm.sh/@owlbear-rodeo/sdk@3";
+
+const KEY = "com.cris.mesas/olho";
+const MODAL_ID = "com.cris.mesas/janela";
+const MESAS = [
+  { id: "quirino",   nome: "Mesa de Quirino" },
+  { id: "gideao",    nome: "Mesa de Gideão" },
+  { id: "mercado",   nome: "Mercado Paranormal" },
+  { id: "mercearia", nome: "Mercearia" }
+];
+
+let isGM = false;
+let novaMesa = "quirino";
+let olhos = [];          // olhinhos selecionados
+const $ = id => document.getElementById(id);
+const textoErro = e => e?.error?.message ?? e?.message ?? JSON.stringify(e);
+
+// ---------- olhinho: uma imagem (olho.png), pequena ----------
+const OLHO = { arquivo: "olho.png", largura: 520, altura: 286 };
+const TAMANHO_CASAS = 0.5;   // largura do olhinho em casas do mapa (menor = valor menor)
+
+async function colocar() {
+  if (!isGM) return;
+  try {
+    const [pos, escala, W, H] = await Promise.all([
+      OBR.viewport.getPosition(), OBR.viewport.getScale(), OBR.viewport.getWidth(), OBR.viewport.getHeight()
+    ]);
+    const cx = (W / 2 - pos.x) / escala, cy = (H / 2 - pos.y) / escala;
+    const url = new URL(OLHO.arquivo, location.href).href;
+    const olho = buildImage(
+      { url, width: OLHO.largura, height: OLHO.altura, mime: "image/png" },
+      { dpi: OLHO.largura / TAMANHO_CASAS, offset: { x: OLHO.largura / 2, y: OLHO.altura / 2 } }
+    )
+      .position({ x: cx, y: cy })
+      .layer("PROP")
+      .name("Olhinho da mesa")
+      .metadata({ [KEY]: { mesa: novaMesa, home: { x: cx, y: cy } } })
+      .build();
+    await OBR.scene.items.addItems([olho]);
+    await OBR.player.select([olho.id]);
+    OBR.notification.show("Olhinho colocado no centro da tela. Arraste para o lugar certo.");
+  } catch (e) {
+    OBR.notification.show("Não foi possível colocar o olhinho: " + textoErro(e), "ERROR");
+  }
+}
+
+// ---------- seletor de mesas ----------
+function montarMesas(box, atual, aoEscolher) {
+  box.replaceChildren(...MESAS.map(m => {
+    const b = document.createElement("button");
+    b.className = "mesa" + (m.id === atual ? " sel" : "");
+    b.setAttribute("aria-pressed", String(m.id === atual));
+    const img = document.createElement("img"); img.src = `mini-${m.id}.webp`; img.alt = "";
+    const nome = document.createElement("span"); nome.textContent = m.nome;
+    b.append(img, nome);
+    b.addEventListener("click", () => aoEscolher(m.id));
+    return b;
+  }));
+}
+
+function render() {
+  $("jogador").hidden = isGM;
+  $("mestre").hidden = !isGM;
+  montarMesas($("mesas-novo"), novaMesa, id => { novaMesa = id; render(); });
+  $("sel").hidden = !olhos.length;
+  if (olhos.length) {
+    const mesaAtual = olhos[0].metadata[KEY].mesa;
+    montarMesas($("mesas-sel"), olhos.every(o => o.metadata[KEY].mesa === mesaAtual) ? mesaAtual : null, trocar);
+  }
+  OBR.action.setHeight(isGM ? (olhos.length ? 640 : 410) : 110);
+}
+
+async function trocar(mesa) {
+  if (!isGM || !olhos.length) return;
+  try {
+    await OBR.scene.items.updateItems(olhos.map(o => o.id), lista => {
+      for (const it of lista) it.metadata[KEY] = { ...it.metadata[KEY], mesa };
+    });
+  } catch (e) { OBR.notification.show("Não foi possível trocar: " + textoErro(e), "ERROR"); }
+}
+
+async function lerSelecao(ids) {
+  if (!isGM || !ids?.length) { olhos = []; return render(); }
+  try {
+    const itens = await OBR.scene.items.getItems(ids);
+    olhos = itens.filter(i => i.metadata?.[KEY]);
+  } catch (e) { olhos = []; }
+  render();
+}
+
+async function abrirPrevia() {
+  if (!olhos.length) return;
+  try {
+    await OBR.modal.close(MODAL_ID).catch(() => {});
+    await OBR.modal.open({
+      id: MODAL_ID, url: new URL("mesa.html?m=" + olhos[0].metadata[KEY].mesa, location.href).href,
+      fullScreen: true, hidePaper: true, hideBackdrop: true
+    });
+  } catch (e) { OBR.notification.show("Não foi possível abrir a prévia.", "ERROR"); }
+}
+
+$("colocar").addEventListener("click", colocar);
+$("previa").addEventListener("click", abrirPrevia);
+$("remover").addEventListener("click", async () => {
+  if (!isGM || !olhos.length) return;
+  try { await OBR.scene.items.deleteItems(olhos.map(o => o.id)); olhos = []; render(); }
+  catch (e) { OBR.notification.show("Não foi possível remover: " + textoErro(e), "ERROR"); }
+});
+
+OBR.onReady(async () => {
+  isGM = (await OBR.player.getRole()) === "GM";
+  render();
+  OBR.player.onChange(p => {
+    const gm = p.role === "GM";
+    if (gm !== isGM) { isGM = gm; render(); }
+    lerSelecao(p.selection);
+  });
+  OBR.scene.items.onChange(() => { if (olhos.length) lerSelecao(olhos.map(o => o.id)); });
+});
+</script>
+</body>
+</html>
