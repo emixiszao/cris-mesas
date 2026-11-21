@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Cris Mesas - segundo plano</title>
+</head>
+<body>
+<script type="module">
+// Jogadores: ao clicar (selecionar) um olhinho, a mesa abre só na tela deles.
+// Mestre: guarda a posição de cada olhinho e desfaz se um jogador arrastar sem querer.
+import OBR from "https://esm.sh/@owlbear-rodeo/sdk@3";
+
+const KEY = "com.cris.mesas/olho";
+const MODAL_ID = "com.cris.mesas/janela";
+const MESAS = ["quirino", "gideao", "mercado", "mercearia"];
+
+let isGM = false;
+let ocupado = false;
+const idsMestre = new Set();
+const timers = new Map();
+
+async function abrirMesa(mesa) {
+  if (!MESAS.includes(mesa)) return;
+  try {
+    await OBR.modal.close(MODAL_ID).catch(() => {});
+    await OBR.modal.open({
+      id: MODAL_ID,
+      url: new URL("mesa.html?m=" + mesa, location.href).href,
+      fullScreen: true,
+      hidePaper: true,
+      hideBackdrop: true
+    });
+  } catch (e) { /* ignora */ }
+}
+
+// ---------- jogador clicou no olhinho ----------
+async function aoSelecionar(selecao) {
+  if (isGM || ocupado || !selecao?.length) return;
+  try {
+    const itens = await OBR.scene.items.getItems(selecao);
+    const olho = itens.find(i => i.metadata?.[KEY]);
+    if (!olho) return;
+    ocupado = true;
+    await OBR.player.deselect(selecao);          // solta a seleção para poder clicar de novo
+    await abrirMesa(olho.metadata[KEY].mesa);
+    setTimeout(() => { ocupado = false; }, 600);
+  } catch (e) { ocupado = false; }
+}
+
+// ---------- mestre: o olhinho fica onde o mestre deixou ----------
+const iguais = (a, b) => Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5;
+
+function vigiar(itens) {
+  if (!isGM) return;
+  for (const it of itens) {
+    const m = it.metadata?.[KEY];
+    if (!m) continue;
+    if (!m.home) {
+      OBR.scene.items.updateItems([it.id], l => { for (const x of l) x.metadata[KEY] = { ...x.metadata[KEY], home: { x: x.position.x, y: x.position.y } }; });
+      continue;
+    }
+    if (iguais(m.home, it.position)) { clearTimeout(timers.get(it.id)); continue; }
+    const fui = it.lastModifiedUserId === OBR.player.id;
+    const outroMestre = idsMestre.has(it.lastModifiedUserId);
+    if (fui) {
+      // fui eu (mestre) que movi: aceita a nova posição depois que parar de arrastar
+      clearTimeout(timers.get(it.id));
+      timers.set(it.id, setTimeout(() => {
+        OBR.scene.items.updateItems([it.id], l => { for (const x of l) x.metadata[KEY] = { ...x.metadata[KEY], home: { x: x.position.x, y: x.position.y } }; });
+      }, 500));
+    } else if (!outroMestre) {
+      // um jogador mexeu: volta para o lugar
+      const home = m.home;
+      OBR.scene.items.updateItems([it.id], l => { for (const x of l) x.position = { x: home.x, y: home.y }; });
+    }
+  }
+}
+
+async function atualizarMestres() {
+  const jogadores = await OBR.party.getPlayers();
+  idsMestre.clear();
+  jogadores.filter(p => p.role === "GM").forEach(p => idsMestre.add(p.id));
+}
+
+OBR.onReady(async () => {
+  isGM = (await OBR.player.getRole()) === "GM";
+  await atualizarMestres();
+  OBR.party.onChange(atualizarMestres);
+  OBR.player.onChange(p => { isGM = p.role === "GM"; aoSelecionar(p.selection); });
+  OBR.scene.items.onChange(vigiar);
+});
+</script>
+</body>
+</html>

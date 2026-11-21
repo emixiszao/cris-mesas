@@ -1,0 +1,16 @@
+{
+  "name": "Cris Mesas",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "description": "Olhinhos no mapa: ao clicar, o jogador olha a mesa de um vendedor, com efeito de foco.",
+  "author": "@mestremxrpg no Youtube",
+  "icon": "https://emixiszao.github.io/cris-mesas/icon.svg",
+  "background_url": "https://emixiszao.github.io/cris-mesas/background.html",
+  "action": {
+    "title": "Mesas",
+    "icon": "https://emixiszao.github.io/cris-mesas/icon.svg",
+    "popover": "https://emixiszao.github.io/cris-mesas/index.html",
+    "width": 320,
+    "height": 120
+  }
+}
